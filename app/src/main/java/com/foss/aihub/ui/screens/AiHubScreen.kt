@@ -60,14 +60,16 @@ import com.foss.aihub.ui.components.AiHubAppBar
 import com.foss.aihub.ui.components.DrawerContent
 import com.foss.aihub.ui.components.ErrorOverlay
 import com.foss.aihub.ui.components.ErrorType
-import com.foss.aihub.ui.components.LoadingOverlay
+import com.foss.aihub.ui.screens.dialogs.AppUpdateDialog
 import com.foss.aihub.ui.screens.dialogs.JsDialogHandler
 import com.foss.aihub.ui.screens.dialogs.LinkOptionsDialog
 import com.foss.aihub.ui.screens.dialogs.UpdateResultDialog
 import com.foss.aihub.ui.webview.createWebViewForService
 import com.foss.aihub.ui.webview.updateWebViewSettings
+import com.foss.aihub.utils.AppUpdateInfo
 import com.foss.aihub.utils.CloudDataHandler
 import com.foss.aihub.utils.SUPPORT_EMAIL
+import com.foss.aihub.utils.checkForUpdate
 import com.foss.aihub.utils.copyLinkToClipboard
 import com.foss.aihub.utils.openInExternalBrowser
 import com.foss.aihub.utils.performServiceUpdate
@@ -136,6 +138,8 @@ fun AiHubApp(
     var updateResult by remember { mutableStateOf<UpdateResult?>(null) }
 
     var jsDialog by remember { mutableStateOf<JsDialog?>(null) }
+    var showAppUpdateDialog by remember { mutableStateOf(false) }
+    var appUpdateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
 
     val currentState by remember {
         derivedStateOf {
@@ -282,32 +286,71 @@ fun AiHubApp(
     }
 
     LaunchedEffect(true) {
-        val domainsLastUpdateDate = settingsManager.domainsLastUpdatedDate()
-
-        val daysBetween = ChronoUnit.DAYS.between(domainsLastUpdateDate, LocalDate.now())
-        if (daysBetween >= 1) {
-            scope.launch {
-                (CloudDataHandler.updateDomains(context))
-                settingsManager.saveDomainsLastUpdatedDate()
-            }
-        }
-
-        val updateFrequency = settings.updateFrequencyDays
-        if (updateFrequency != -1) {
-            val lastDate = settingsManager.getAiServicesLastUpdatedDate()
+        try {
+            val lastDate = settingsManager.getDomainsLastUpdatedDate()
             val daysBetween = ChronoUnit.DAYS.between(lastDate, LocalDate.now())
-
-            if (daysBetween >= updateFrequency) {
+            if (daysBetween >= 1) {
                 scope.launch {
-                    val result = performServiceUpdate(context, settingsManager)
-                    if (result != null) {
-                        updateResult = result
-                        showUpdateDialog = true
-                        onServicesUpdated(loadServices(context))
+                    try {
+                        CloudDataHandler.updateDomains(context)
+                        settingsManager.saveDomainsLastUpdatedDate()
+                    } catch (_: Exception) {
+                        // ignore
                     }
-                    settingsManager.saveLastUpdatedDate()
                 }
             }
+        } catch (_: Exception) {
+            // ignore
+        }
+
+        try {
+            val updateFrequency = settings.updateFrequencyDays
+            if (updateFrequency != -1) {
+                val lastDate = settingsManager.getAiServicesLastUpdatedDate()
+                val daysBetween = ChronoUnit.DAYS.between(lastDate, LocalDate.now())
+
+                if (daysBetween >= updateFrequency) {
+                    scope.launch {
+                        try {
+                            val result = performServiceUpdate(context, settingsManager)
+                            if (result != null) {
+                                updateResult = result
+                                showUpdateDialog = true
+                                onServicesUpdated(loadServices(context))
+                                settingsManager.saveAiServicesLastUpdatedDate()
+                            }
+                        } catch (_: Exception) {
+                            // ignore
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // ignore
+        }
+
+        try {
+            val checkForUpdate = settings.checkForUpdate
+            if (checkForUpdate) {
+                val lastDate = settingsManager.getLastUpdateCheckDate()
+                val daysBetween = ChronoUnit.DAYS.between(lastDate, LocalDate.now())
+                if (daysBetween >= 3) {
+                    scope.launch {
+                        try {
+                            val updateAvailable = checkForUpdate(context)
+                            if (updateAvailable != null) {
+                                appUpdateInfo = updateAvailable
+                                showAppUpdateDialog = true
+                            }
+                            settingsManager.saveLastUpdateCheckDate()
+                        } catch (_: Exception) {
+                            // ignore
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // ignore
         }
     }
 
@@ -403,6 +446,9 @@ fun AiHubApp(
                 .windowInsetsPadding(WindowInsets.safeDrawing),
             topBar = {
                 AiHubAppBar(
+                    isLoading = currentState.isLoading && !hasCurrentError,
+                    loadingProgress = currentState.progress,
+                    loadingColor = selectedService.accentColor,
                     selectedService = selectedService,
                     onMenuClick = {
                         scope.launch {
@@ -525,19 +571,101 @@ fun AiHubApp(
                 Box(modifier = Modifier.fillMaxSize()) {
                     AndroidView(
                         factory = { ctx ->
-                        FrameLayout(ctx).apply {
-                            webViews.values.forEach { wv ->
-                                if (wv.parent == null) {
-                                    addView(wv)
-                                    wv.visibility = View.GONE
+                            FrameLayout(ctx).apply {
+                                webViews.values.forEach { wv ->
+                                    if (wv.parent == null) {
+                                        addView(wv)
+                                        wv.visibility = View.GONE
+                                    }
+                                }
+
+                                val currentService = selectedService
+                                val currentWebView = webViews[currentService.name]
+                                if (currentWebView == null) {
+                                    val newWebView = createWebViewForService(
+                                        context = this.context,
+                                        service = currentService,
+                                        activity = context,
+                                        settings = settings,
+                                        onProgressUpdate = { progress ->
+                                            updateServiceState(currentService.name) { state ->
+                                                state.copy(progress = progress)
+                                            }
+                                        },
+                                        onLoadingStateChange = { isLoading ->
+                                            updateServiceState(currentService.name) { state ->
+                                                state.copy(
+                                                    isLoading = isLoading,
+                                                    webViewState = if (isLoading) WebViewState.LOADING else WebViewState.SUCCESS,
+                                                    progress = if (isLoading) 0 else state.progress
+                                                )
+                                            }
+
+                                            if (isLoading) {
+                                                updateServiceState(currentService.name) { state ->
+                                                    state.copy(error = null)
+                                                }
+                                            }
+                                        },
+                                        onLinkLongPress = { url, title, type ->
+                                            selectedLink = LinkData(url, title, type)
+                                            showLinkDialog = true
+                                        },
+                                        onError = { errorCode, description ->
+                                            updateServiceState(currentService.name) { state ->
+                                                state.copy(
+                                                    error = errorCode to description,
+                                                    webViewState = WebViewState.ERROR,
+                                                    isLoading = false
+                                                )
+                                            }
+                                            webViews[currentService.name]?.visibility = View.GONE
+                                        },
+                                        onJsAlertRequest = { message, result ->
+                                            message?.let {
+                                                jsDialog = JsDialog.Alert(it, result!!)
+                                            }
+                                        },
+                                        onJsConfirmRequest = { message, result ->
+                                            message?.let {
+                                                jsDialog = JsDialog.Confirm(it, result!!)
+                                            }
+                                        },
+                                        onJsPromptRequest = { message, result ->
+                                            message?.let {
+                                                jsDialog = JsDialog.Prompt(it, result!!)
+                                            }
+                                        },
+                                        onJsBeforeUnloadRequest = { message, result ->
+                                            message?.let {
+                                                jsDialog = JsDialog.BeforeUnload(it, result!!)
+                                            }
+                                        },
+                                    )
+
+                                    updateWebViewSettings(newWebView, settings, false)
+                                    webViews[currentService.name] = newWebView
+                                    addView(newWebView)
+                                    newWebView.visibility = View.VISIBLE
+                                    newWebView.bringToFront()
+                                } else {
+                                    if (currentWebView.parent == null) {
+                                        addView(currentWebView)
+                                    }
+                                    currentWebView.bringToFront()
+
+                                    val shouldBeVisible =
+                                        serviceStates[currentService.name]?.error == null
+                                    currentWebView.visibility =
+                                        if (shouldBeVisible) View.VISIBLE else View.GONE
                                 }
                             }
-
+                        },
+                        update = { root ->
                             val currentService = selectedService
-                            val currentWebView = webViews[currentService.name]
-                            if (currentWebView == null) {
+                            if (webViews[currentService.name] == null) {
                                 val newWebView = createWebViewForService(
-                                    context = this.context,
+                                    context = root.context,
                                     service = currentService,
                                     activity = context,
                                     settings = settings,
@@ -598,113 +726,24 @@ fun AiHubApp(
 
                                 updateWebViewSettings(newWebView, settings, false)
                                 webViews[currentService.name] = newWebView
-                                addView(newWebView)
+                                root.addView(newWebView)
                                 newWebView.visibility = View.VISIBLE
                                 newWebView.bringToFront()
                             } else {
+                                val currentWebView = webViews[currentService.name]!!
                                 if (currentWebView.parent == null) {
-                                    addView(currentWebView)
+                                    root.addView(currentWebView)
                                 }
-                                currentWebView.bringToFront()
 
                                 val shouldBeVisible =
                                     serviceStates[currentService.name]?.error == null
                                 currentWebView.visibility =
                                     if (shouldBeVisible) View.VISIBLE else View.GONE
+                                currentWebView.bringToFront()
                             }
-                        }
-                    }, update = { root ->
-                        val currentService = selectedService
-                        if (webViews[currentService.name] == null) {
-                            val newWebView = createWebViewForService(
-                                context = root.context,
-                                service = currentService,
-                                activity = context,
-                                settings = settings,
-                                onProgressUpdate = { progress ->
-                                    updateServiceState(currentService.name) { state ->
-                                        state.copy(progress = progress)
-                                    }
-                                },
-                                onLoadingStateChange = { isLoading ->
-                                    updateServiceState(currentService.name) { state ->
-                                        state.copy(
-                                            isLoading = isLoading,
-                                            webViewState = if (isLoading) WebViewState.LOADING else WebViewState.SUCCESS
-                                        )
-                                    }
-
-                                    if (isLoading) {
-                                        updateServiceState(currentService.name) { state ->
-                                            state.copy(error = null)
-                                        }
-                                    }
-                                },
-                                onLinkLongPress = { url, title, type ->
-                                    selectedLink = LinkData(url, title, type)
-                                    showLinkDialog = true
-                                },
-                                onError = { errorCode, description ->
-                                    updateServiceState(currentService.name) { state ->
-                                        state.copy(
-                                            error = errorCode to description,
-                                            webViewState = WebViewState.ERROR,
-                                            isLoading = false
-                                        )
-                                    }
-                                    webViews[currentService.name]?.visibility = View.GONE
-                                },
-                                onJsAlertRequest = { message, result ->
-                                    message?.let {
-                                        jsDialog = JsDialog.Alert(it, result!!)
-                                    }
-                                },
-                                onJsConfirmRequest = { message, result ->
-                                    message?.let {
-                                        jsDialog = JsDialog.Confirm(it, result!!)
-                                    }
-                                },
-                                onJsPromptRequest = { message, result ->
-                                    message?.let {
-                                        jsDialog = JsDialog.Prompt(it, result!!)
-                                    }
-                                },
-                                onJsBeforeUnloadRequest = { message, result ->
-                                    message?.let {
-                                        jsDialog = JsDialog.BeforeUnload(it, result!!)
-                                    }
-                                },
-                            )
-
-                            updateWebViewSettings(newWebView, settings, false)
-                            webViews[currentService.name] = newWebView
-                            root.addView(newWebView)
-                            newWebView.visibility = View.VISIBLE
-                            newWebView.bringToFront()
-                        } else {
-                            val currentWebView = webViews[currentService.name]!!
-                            if (currentWebView.parent == null) {
-                                root.addView(currentWebView)
-                            }
-
-                            val shouldBeVisible = serviceStates[currentService.name]?.error == null
-                            currentWebView.visibility =
-                                if (shouldBeVisible) View.VISIBLE else View.GONE
-                            currentWebView.bringToFront()
-                        }
-                    }, modifier = Modifier.fillMaxSize()
+                        },
+                        modifier = Modifier.fillMaxSize(),
                     )
-
-                    if (currentState.isLoading && !hasCurrentError) {
-                        LoadingOverlay(
-                            isVisible = true,
-                            isRefreshing = false,
-                            serviceName = selectedService.name,
-                            accentColor = selectedService.accentColor,
-                            progress = currentState.progress,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
 
                     if (hasCurrentError && currentState.error != null) {
                         val (errorCode, errorMessage) = currentState.error!!
@@ -1026,6 +1065,17 @@ fun AiHubApp(
     if (showAbout) {
         BackHandler { showAbout = false }
         AboutScreen(context = context, onBack = { showAbout = false })
+    }
+
+    if (showAppUpdateDialog && appUpdateInfo != null) {
+        AppUpdateDialog(
+            updateInfo = appUpdateInfo!!,
+            onDismiss = { showAppUpdateDialog = false },
+            onOpenDownload = { url ->
+                openInExternalBrowser(context, url)
+                showAppUpdateDialog = false
+            },
+        )
     }
 
     if (showRequestNewAiScreen) {

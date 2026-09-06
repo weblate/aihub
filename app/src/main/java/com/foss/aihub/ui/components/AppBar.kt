@@ -8,9 +8,13 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +38,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialTheme.colorScheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -48,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,7 +74,10 @@ fun AiHubAppBar(
     loadedServiceNames: Set<String>,
     allServices: List<AiService>,
     onReload: (AiService) -> Unit,
-    onServiceSelected: (AiService) -> Unit
+    onServiceSelected: (AiService) -> Unit,
+    isLoading: Boolean = false,
+    loadingProgress: Int = 0,
+    loadingColor: Color = colorScheme.primary
 ) {
     var showServicesDialog by remember { mutableStateOf(false) }
     var showClearDataDialog by remember { mutableStateOf(false) }
@@ -82,174 +91,188 @@ fun AiHubAppBar(
         label = "icon_rotation"
     )
 
-    TopAppBar(
-        title = {
-        AnimatedContent(
-            targetState = selectedService, transitionSpec = {
-                fadeIn(animationSpec = tween(220, delayMillis = 90)) togetherWith fadeOut(
-                    animationSpec = tween(90)
-                )
-            }, label = "service_title"
-        ) { service ->
-            Text(
-                text = service.name,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.animateContentSize()
-            )
-        }
-    }, navigationIcon = {
-        IconButton(
-            onClick = onMenuClick, modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-        ) {
-            Icon(
-                Icons.Rounded.Menu,
-                contentDescription = stringResource(R.string.label_menu),
-                modifier = Modifier.size(24.dp)
-            )
-        }
-    }, actions = {
-        BadgedBox(
-            badge = {
-                if (loadedServiceNames.isNotEmpty()) {
-                    Badge(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+    // Wrap app bar and loading line in a Column so the line sits below
+    Column(modifier = Modifier.fillMaxWidth()) {
+        TopAppBar(
+            title = {
+                AnimatedContent(
+                    targetState = selectedService, transitionSpec = {
+                        fadeIn(animationSpec = tween(220, delayMillis = 90)) togetherWith fadeOut(
+                            animationSpec = tween(90)
+                        )
+                    }, label = "service_title"
+                ) { service ->
+                    Text(
+                        text = service.name,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.animateContentSize()
+                    )
+                }
+            },
+            navigationIcon = {
+                IconButton(
+                    onClick = onMenuClick, modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                ) {
+                    Icon(
+                        Icons.Rounded.Menu,
+                        contentDescription = stringResource(R.string.label_menu),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            },
+            actions = {
+                BadgedBox(
+                    badge = {
+                        if (loadedServiceNames.isNotEmpty()) {
+                            Badge(
+                                containerColor = colorScheme.primary,
+                                contentColor = colorScheme.onPrimary
+                            ) {
+                                Text(
+                                    text = loadedServiceNames.size.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                            }
+                        }
+                    },
+                ) {
+                    IconButton(
+                        onClick = { showServicesDialog = true },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
                     ) {
-                        Text(
-                            text = loadedServiceNames.size.toString(),
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 4.dp)
+                        Icon(
+                            imageVector = Icons.Rounded.Apps,
+                            contentDescription = stringResource(R.string.title_active_ai_services),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                Box {
+                    IconButton(
+                        onClick = { expanded = true },
+                        interactionSource = interactionSource,
+                        modifier = Modifier.rotate(rotation)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = stringResource(R.string.action_more_options),
+                            tint = colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                        modifier = Modifier.width(200.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        containerColor = colorScheme.surfaceContainer,
+                        tonalElevation = 2.dp
+                    ) {
+                        DropdownMenuItem(
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Replay,
+                                    contentDescription = null,
+                                    tint = colorScheme.onSurfaceVariant
+                                )
+                            },
+                            text = {
+                                Text(
+                                    text = stringResource(R.string.action_reload),
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                onReload(selectedService)
+                            },
+                        )
+                        DropdownMenuItem(
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Settings,
+                                    contentDescription = null,
+                                    tint = colorScheme.onSurfaceVariant
+                                )
+                            },
+                            text = {
+                                Text(
+                                    text = stringResource(R.string.title_settings),
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                onSettingsClick()
+                            },
+                        )
+                        DropdownMenuItem(
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = null,
+                                    tint = colorScheme.onSurfaceVariant
+                                )
+                            },
+                            text = {
+                                Text(
+                                    text = stringResource(R.string.action_clear_site_data),
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                showClearDataDialog = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Rounded.Info,
+                                    contentDescription = null,
+                                    tint = colorScheme.onSurfaceVariant
+                                )
+                            },
+                            text = {
+                                Text(
+                                    text = stringResource(R.string.section_about),
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                onAboutClick()
+                            },
                         )
                     }
                 }
             },
-        ) {
-            IconButton(
-                onClick = { showServicesDialog = true },
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Apps,
-                    contentDescription = stringResource(R.string.title_active_ai_services),
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        }
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = colorScheme.surface,
+                scrolledContainerColor = colorScheme.surfaceContainer,
+                titleContentColor = colorScheme.onSurface,
+                navigationIconContentColor = colorScheme.onSurfaceVariant,
+                actionIconContentColor = colorScheme.onSurfaceVariant
+            ),
+            windowInsets = TopAppBarDefaults.windowInsets,
+        )
 
-        Box {
-            IconButton(
-                onClick = { expanded = true },
-                interactionSource = interactionSource,
-                modifier = Modifier.rotate(rotation)
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.MoreVert,
-                    contentDescription = stringResource(R.string.action_more_options),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier.width(200.dp),
-                shape = RoundedCornerShape(16.dp),
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                tonalElevation = 2.dp
-            ) {
-                DropdownMenuItem(
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Replay,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    text = {
-                        Text(
-                            text = stringResource(R.string.action_reload),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    },
-                    onClick = {
-                        expanded = false
-                        onReload(selectedService)
-                    },
-                )
-                DropdownMenuItem(
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Settings,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    text = {
-                        Text(
-                            text = stringResource(R.string.title_settings),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    },
-                    onClick = {
-                        expanded = false
-                        onSettingsClick()
-                    },
-                )
-                DropdownMenuItem(
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    text = {
-                        Text(
-                            text = stringResource(R.string.action_clear_site_data),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    },
-                    onClick = {
-                        expanded = false
-                        showClearDataDialog = true
-                    },
-                )
-                DropdownMenuItem(
-                    leadingIcon = {
-                        Icon(
-                            Icons.Rounded.Info,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    text = {
-                        Text(
-                            text = stringResource(R.string.section_about),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    },
-                    onClick = {
-                        expanded = false
-                        onAboutClick()
-                    },
-                )
-            }
-        }
-    }, colors = TopAppBarDefaults.topAppBarColors(
-        containerColor = MaterialTheme.colorScheme.surface,
-        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-        titleContentColor = MaterialTheme.colorScheme.onSurface,
-        navigationIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-    ), windowInsets = TopAppBarDefaults.windowInsets
-    )
+        LoadingLine(
+            isVisible = isLoading,
+            accentColor = loadingColor,
+            progress = loadingProgress,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
 
     if (showServicesDialog) {
         ActiveServicesDialog(
@@ -290,7 +313,7 @@ fun AiHubAppBar(
                 ) {
                     Text(
                         text = stringResource(R.string.action_clear),
-                        color = MaterialTheme.colorScheme.error,
+                        color = colorScheme.error,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -300,10 +323,42 @@ fun AiHubAppBar(
                     Text(text = stringResource(R.string.action_close))
                 }
             },
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            containerColor = colorScheme.surfaceContainerHigh,
+            titleContentColor = colorScheme.onSurface,
+            textContentColor = colorScheme.onSurfaceVariant
         )
+    }
+}
+
+@Composable
+private fun LoadingLine(
+    modifier: Modifier = Modifier, isVisible: Boolean, accentColor: Color, progress: Int = 0
+) {
+    val animatedFraction by animateFloatAsState(
+        targetValue = progress / 100f,
+        animationSpec = tween(durationMillis = 600),
+        label = "progress"
+    )
+
+    androidx.compose.animation.AnimatedVisibility(
+        visible = isVisible,
+        enter = fadeIn(animationSpec = tween(300)),
+        exit = fadeOut(animationSpec = tween(300)),
+        modifier = modifier
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .background(accentColor.copy(alpha = 0.2f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(animatedFraction)
+                    .height(4.dp)
+                    .background(accentColor)
+            )
+        }
     }
 }
 
@@ -332,12 +387,13 @@ fun Md3TopAppBar(
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            scrolledContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-            actionIconContentColor = MaterialTheme.colorScheme.onSurface,
+            containerColor = colorScheme.surface,
+            scrolledContainerColor = colorScheme.surfaceColorAtElevation(3.dp),
+            titleContentColor = colorScheme.onSurface,
+            navigationIconContentColor = colorScheme.onSurface,
+            actionIconContentColor = colorScheme.onSurface,
         ),
-        scrollBehavior = scrollBehavior, actions = actions,
+        scrollBehavior = scrollBehavior,
+        actions = actions,
     )
 }

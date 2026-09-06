@@ -33,6 +33,7 @@
     <string name="action_remove_service">Close service</string>
     <string name="action_reset_filters">Reset filters</string>
     <string name="action_restart">Restart</string>
+    <string name="action_restore">Restore</string>
     <string name="action_retry">Retry</string>
     <string name="action_save">Save</string>
     <string name="action_search">Search</string>
@@ -318,6 +319,26 @@
     <string name="setting_theme_description">Choose between system default, light or dark</string>
     <string name="setting_third_party_cookies">Allow third-party cookies</string>
     <string name="setting_third_party_cookies_description">May be required for some logins</string>
+    <string name="setting_restore">Restore Settings</string>
+
+    <string name="setting_backup">Backup Settings</string>
+    <string name="setting_backup_description">Save current settings to a JSON file</string>
+
+    <string name="setting_backup_failed">Backup failed</string>
+    <string name="setting_backup_success">Backup successful</string>
+
+    <string name="setting_restore_failed">Restore failed</string>
+    <string name="setting_restore_success">Settings restored successfully</string>
+
+
+    <string name="setting_backup_restore">Backup &amp; Restore</string>
+
+    <string name="setting_restore_message">This will overwrite all current settings with the ones from the backup file. Are you sure?</string>
+    <string name="setting_restore_description">Import settings from a JSON file</string>
+
+    <string name="setting_check_app_updates">Check for app updates</string>
+    <string name="setting_check_app_updates_description">Automatically check for new versions every 3 days</string>
+
     <string name="setting_update_frequency">Update frequency</string>
     <string name="setting_update_frequency_description">How often to check for updates</string>
     <string name="share_link_description">Share via other apps</string>

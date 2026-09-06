@@ -24,3 +24,8 @@
     public static *** d(...);
     public static *** v(...);
 }
+
+-keep class com.foss.aihub.models.** { *; }
+-keepclassmembers class * {
+    @com.google.gson.annotations.SerializedName <fields>;
+}

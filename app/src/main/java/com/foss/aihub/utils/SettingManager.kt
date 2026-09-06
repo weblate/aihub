@@ -10,6 +10,7 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalDate
+import java.time.format.DateTimeParseException
 
 class SettingsManager(context: Context) {
     private val sharedPref: SharedPreferences =
@@ -57,6 +58,8 @@ class SettingsManager(context: Context) {
         private const val KEY_MAX_KEEP_ALIVE = "maxKeepAlive"
         private const val KEY_UPDATE_FREQUENCY_DAYS = "updateFrequencyDays"
         private const val KEY_BLOCK_ADS_TRACKERS = "blockAdsAndTrackers"
+        private const val KEY_CHECK_FOR_UPDATE = "checkForUpdate"
+        private const val KEY_LAST_UPDATE_CHECK_DATE = "lastUpdateCheck"
 
         private const val KEY_LOAD_LAST_OPENED_AI = "loadLastOpenedAI"
         private const val KEY_MULTIPLE_DEFAULT_AI = "multipleDefaultAI"
@@ -103,7 +106,7 @@ class SettingsManager(context: Context) {
         }
     }
 
-    private fun loadSettings(): AppSettings = AppSettings(
+    fun loadSettings(): AppSettings = AppSettings(
         theme = sharedPref.getString(KEY_THEME, "auto") ?: "auto",
         loadLastOpenedAI = sharedPref.getBoolean(KEY_LOAD_LAST_OPENED_AI, true),
         multipleDefaultAi = sharedPref.getBoolean(KEY_MULTIPLE_DEFAULT_AI, false),
@@ -120,6 +123,7 @@ class SettingsManager(context: Context) {
         fontSizePercentage = sharedPref.getInt(KEY_FONT_SIZE_PERCENT, 100),
         updateFrequencyDays = sharedPref.getInt(KEY_UPDATE_FREQUENCY_DAYS, 3),
         blockAdsAndTrackers = sharedPref.getBoolean(KEY_BLOCK_ADS_TRACKERS, true),
+        checkForUpdate = sharedPref.getBoolean(KEY_CHECK_FOR_UPDATE, true),
         isProxy = sharedPref.getBoolean(KEY_IS_PROXY, false),
         proxyType = sharedPref.getString(KEY_PROXY_TYPE, "http") ?: "http",
         proxyHost = sharedPref.getString(KEY_PROXY_HOST, "localhost") ?: "localhost",
@@ -162,6 +166,7 @@ class SettingsManager(context: Context) {
             putInt(KEY_FONT_SIZE_PERCENT, settings.fontSizePercentage)
             putInt(KEY_UPDATE_FREQUENCY_DAYS, settings.updateFrequencyDays)
             putBoolean(KEY_BLOCK_ADS_TRACKERS, settings.blockAdsAndTrackers)
+            putBoolean(KEY_CHECK_FOR_UPDATE, settings.checkForUpdate)
             putBoolean(KEY_IS_PROXY, settings.isProxy)
             putString(KEY_PROXY_TYPE, settings.proxyType)
             putString(KEY_PROXY_HOST, settings.proxyHost)
@@ -187,6 +192,10 @@ class SettingsManager(context: Context) {
         _settingsFlow.value = current
     }
 
+    fun getSettingVersion(): Int {
+        return sharedPref.getInt(KEY_STORAGE_VERSION, 1)
+    }
+
     fun getDomainsEtag(): String? = sharedPref.getString(KEY_DOMAINS_ETAG, null)
 
     fun saveDomainsEtag(etag: String) {
@@ -207,13 +216,12 @@ class SettingsManager(context: Context) {
         sharedPref.edit { putStringSet(KEY_ENABLED_SERVICES, services) }
     }
 
-    fun domainsLastUpdatedDate(): LocalDate? {
-        val dateString = sharedPref.getString(KEY_DOMAINS_LAST_UPDATED_DATE, null)
-        return dateString?.let { LocalDate.parse(it) }
-    }
-
-    fun saveDomainsLastUpdatedDate() {
-        sharedPref.edit { putString(KEY_DOMAINS_LAST_UPDATED_DATE, LocalDate.now().toString()) }
+    fun saveDomainsLastUpdatedDate(localdate: String? = null) {
+        sharedPref.edit {
+            putString(
+                KEY_DOMAINS_LAST_UPDATED_DATE, localdate ?: LocalDate.now().toString()
+            )
+        }
     }
 
     fun loadServiceOrder(): List<String> {
@@ -223,6 +231,14 @@ class SettingsManager(context: Context) {
             gson.fromJson(json, type)
         } else {
             emptyList()
+        }
+    }
+
+    fun saveLastUpdateCheckDate(localdate: String? = null) {
+        sharedPref.edit {
+            putString(
+                KEY_LAST_UPDATE_CHECK_DATE, localdate ?: LocalDate.now().toString()
+            )
         }
     }
 
@@ -245,13 +261,32 @@ class SettingsManager(context: Context) {
 
     fun getLastOpenedService(): String? = sharedPref.getString(KEY_LAST_OPENED_SERVICE, null)
 
-    fun getAiServicesLastUpdatedDate(): LocalDate? {
-        val dateString = sharedPref.getString(KEY_AI_SERVICES_LAST_UPDATED_DATE, null)
-        return dateString?.let { LocalDate.parse(it) }
+    private fun getOrCreateDateForKey(key: String): LocalDate {
+        val dateString = sharedPref.getString(key, null)
+
+        return try {
+            dateString?.let { LocalDate.parse(it) } ?: LocalDate.now()
+        } catch (_: DateTimeParseException) {
+            LocalDate.now()
+        }.also { date ->
+            sharedPref.edit { putString(key, date.toString()) }
+        }
     }
 
-    fun saveLastUpdatedDate() {
-        sharedPref.edit { putString(KEY_AI_SERVICES_LAST_UPDATED_DATE, LocalDate.now().toString()) }
+    fun getLastUpdateCheckDate(): LocalDate = getOrCreateDateForKey(KEY_LAST_UPDATE_CHECK_DATE)
+
+    fun getDomainsLastUpdatedDate(): LocalDate =
+        getOrCreateDateForKey(KEY_DOMAINS_LAST_UPDATED_DATE)
+
+    fun getAiServicesLastUpdatedDate(): LocalDate =
+        getOrCreateDateForKey(KEY_AI_SERVICES_LAST_UPDATED_DATE)
+
+    fun saveAiServicesLastUpdatedDate(localdate: String? = null) {
+        sharedPref.edit {
+            putString(
+                KEY_AI_SERVICES_LAST_UPDATED_DATE, localdate ?: LocalDate.now().toString()
+            )
+        }
     }
 
     private fun SharedPreferences.safeGetStringSet(

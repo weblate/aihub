@@ -16,6 +16,7 @@ data class AppSettings(
     var fontSizePercentage: Int = 100,
     var updateFrequencyDays: Int = 3,
     var blockAdsAndTrackers: Boolean = true,
+    var checkForUpdate: Boolean = true,
     var isProxy: Boolean = false,
     var proxyType: String = "http",
     var proxyHost: String = "localhost",

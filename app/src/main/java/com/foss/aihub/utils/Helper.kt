@@ -13,14 +13,21 @@ import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
+import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import kotlin.math.abs
 
 fun String.capitalizeFirstLetter(): String =
     replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+
+data class AppUpdateInfo(
+    val versionName: String, val releaseNotes: String, val downloadUrl: String
+)
 
 fun Context.readAssetsFile(fileName: String): String {
     return try {
@@ -166,6 +173,49 @@ fun getUpdateErrorMessage(context: Context, error: Exception): String {
         error is IOException -> context.getString(R.string.error_no_connection_message)
         else -> context.getString(R.string.error_something_went_wrong_message)
     }
+}
+
+suspend fun checkForUpdate(context: Context): AppUpdateInfo? {
+    val url = "https://api.github.com/repos/$GITHUB_USER_NAME/$GITHUB_REPO_NAME/releases/latest"
+
+    return try {
+        val currentVersion =
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+
+        val url = URL(url)
+        val connection = withContext(Dispatchers.IO) {
+            url.openConnection()
+        } as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 5000
+        connection.readTimeout = 5000
+
+        val response = connection.inputStream.bufferedReader().readText()
+        val json = JSONObject(response)
+
+        val latestVersion = json.getString("tag_name")
+        val cleanedLatest = latestVersion.removePrefix("v")
+        val body = json.getString("body")
+        val downloadUrl =
+            json.getJSONArray("assets").getJSONObject(0).getString("browser_download_url")
+
+        if (isNewerVersion(cleanedLatest, currentVersion!!)) {
+            AppUpdateInfo(cleanedLatest, body, downloadUrl)
+        } else null
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun isNewerVersion(latest: String, current: String): Boolean {
+    val latestParts = latest.split('.').map { it.toIntOrNull() ?: 0 }
+    val currentParts = current.split('.').map { it.toIntOrNull() ?: 0 }
+    for (i in 0 until maxOf(latestParts.size, currentParts.size)) {
+        val l = latestParts.getOrElse(i) { 0 }
+        val c = currentParts.getOrElse(i) { 0 }
+        if (l != c) return l > c
+    }
+    return false
 }
 
 fun normalizeUrl(url: String): String {

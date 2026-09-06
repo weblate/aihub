@@ -1,6 +1,8 @@
 package com.foss.aihub.ui.screens
 
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -23,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Block
@@ -75,6 +78,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -87,9 +91,11 @@ import androidx.compose.ui.unit.dp
 import com.foss.aihub.R
 import com.foss.aihub.models.AiService
 import com.foss.aihub.ui.components.Md3TopAppBar
+import com.foss.aihub.utils.SettingsBackupHelper
 import com.foss.aihub.utils.SettingsManager
 import com.foss.aihub.utils.capitalizeFirstLetter
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -106,6 +112,24 @@ fun SettingsScreen(
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val settings by settingsManager.settingsFlow.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
+
+    val backupHelper = remember { SettingsBackupHelper(settingsManager) }
+
+    val backupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let {
+            coroutineScope.launch {
+                val success = backupHelper.backupToUri(context, it)
+                snackbarHostState.showSnackbar(
+                    if (success) context.getString(R.string.setting_backup_success) else context.getString(
+                        R.string.setting_backup_failed
+                    )
+                )
+            }
+        }
+    }
 
     var loadLastAi by remember { mutableStateOf(settings.loadLastOpenedAI) }
     var multipleDefaultAi by remember { mutableStateOf(settings.multipleDefaultAi) }
@@ -151,6 +175,12 @@ fun SettingsScreen(
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showClearDataDialog by remember { mutableStateOf(false) }
 
+    var showRestoreConfirmDialog by remember { mutableStateOf(false) }
+
+    var checkForUpdate by remember { mutableStateOf(settings.checkForUpdate) }
+    var cloudUpdatesEnabled by remember { mutableStateOf(settings.updateFrequencyDays != -1) }
+    var cloudUpdateFrequencyDays by remember { mutableIntStateOf(if (settings.updateFrequencyDays != -1) settings.updateFrequencyDays else 1) }
+
     val orderedServices = remember(settings, aiServices) {
         settingsManager.loadServiceOrder().filter { it in settingsManager.loadEnabledServices() }
             .mapNotNull { name -> aiServices.find { it.name == name } }
@@ -162,6 +192,81 @@ fun SettingsScreen(
         uncheckedThumbColor = MaterialTheme.colorScheme.outline,
         uncheckedTrackColor = MaterialTheme.colorScheme.outlineVariant
     )
+
+    val restoreLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            coroutineScope.launch {
+                val settingsBackup = backupHelper.restoreFromUri(context, it)
+                if (settingsBackup != null) {
+                    val restored = settingsBackup.appSettings
+
+                    settingsManager.updateSettings {
+                        it.loadLastOpenedAI = restored.loadLastOpenedAI
+                        it.multipleDefaultAi = restored.multipleDefaultAi
+                        it.defaultServiceName = restored.defaultServiceName
+                        it.defaultServiceNames = restored.defaultServiceNames
+                        it.enabledServices = restored.enabledServices
+                        it.enableNewServicesByDefault = restored.enableNewServicesByDefault
+                        it.preferredCategories = restored.preferredCategories
+                        it.preferredPrices = restored.preferredPrices
+                        it.preferredPrivacy = restored.preferredPrivacy
+                        it.preferredLoginRequired = restored.preferredLoginRequired
+                        it.maxKeepAlive = restored.maxKeepAlive
+                        it.enableZoom = restored.enableZoom
+                        it.desktopView = restored.desktopView
+                        it.thirdPartyCookies = restored.thirdPartyCookies
+                        it.fontSizePercentage = restored.fontSizePercentage
+                        it.blockAdsAndTrackers = restored.blockAdsAndTrackers
+                        it.checkForUpdate = restored.checkForUpdate
+                        it.isProxy = restored.isProxy
+                        it.proxyType = restored.proxyType
+                        it.proxyHost = restored.proxyHost
+                        it.proxyPort = restored.proxyPort
+                        it.serviceOrder = restored.serviceOrder
+                        it.favoriteServices = restored.favoriteServices
+                    }
+
+                    loadLastAi = restored.loadLastOpenedAI
+                    multipleDefaultAi = restored.multipleDefaultAi
+                    defaultServiceName =
+                        restored.defaultServiceName ?: aiServices.firstOrNull()?.name ?: ""
+                    defaultServiceNames = restored.defaultServiceNames
+                    enabledServices = restored.enabledServices
+                    enableNewServices = restored.enableNewServicesByDefault
+                    selectedCategories = restored.preferredCategories
+                    selectedPricing = restored.preferredPrices
+                    selectedPrivacy = restored.preferredPrivacy
+                    selectedLoginRequired = when (restored.preferredLoginRequired) {
+                        true -> setOf("Required")
+                        false -> setOf("Not Required")
+                        else -> emptySet()
+                    }
+                    limitSimultaneousAIs = restored.maxKeepAlive != Int.MAX_VALUE
+                    maxKeepAlive =
+                        if (restored.maxKeepAlive == Int.MAX_VALUE) 5 else restored.maxKeepAlive
+                    enableZoom = restored.enableZoom
+                    desktopView = restored.desktopView
+                    thirdPartyCookies = restored.thirdPartyCookies
+                    selectedFontSizePercent = restored.fontSizePercentage
+                    blockUnnecessaryConnections = restored.blockAdsAndTrackers
+                    proxyOption = if (restored.isProxy) restored.proxyType else "none"
+                    proxyHost = restored.proxyHost
+                    proxyPort = restored.proxyPort
+                    checkForUpdate = restored.checkForUpdate
+                    cloudUpdatesEnabled = restored.updateFrequencyDays != -1
+                    cloudUpdateFrequencyDays =
+                        if (restored.updateFrequencyDays != -1) restored.updateFrequencyDays else 1
+
+                    snackbarHostState.showSnackbar(context.getString(R.string.setting_restore_success))
+                } else {
+                    snackbarHostState.showSnackbar(context.getString(R.string.setting_restore_failed))
+                }
+            }
+        }
+    }
+
 
     LaunchedEffect(selectedCategories) {
         settingsManager.updateSettings { it.preferredCategories = selectedCategories }
@@ -179,6 +284,10 @@ fun SettingsScreen(
             else -> null
         }
         settingsManager.updateSettings { it.preferredLoginRequired = loginPref }
+    }
+    LaunchedEffect(cloudUpdatesEnabled, cloudUpdateFrequencyDays) {
+        val days = if (cloudUpdatesEnabled) cloudUpdateFrequencyDays else -1
+        settingsManager.updateSettings { it.updateFrequencyDays = days }
     }
     LaunchedEffect(enableNewServices) {
         settingsManager.updateSettings { it.enableNewServicesByDefault = enableNewServices }
@@ -485,16 +594,23 @@ fun SettingsScreen(
             item {
                 SettingsCard {
                     Column {
-                        val isCloudUpdatesEnabled = settings.updateFrequencyDays != -1
-                        var isEnabled by remember { mutableStateOf(isCloudUpdatesEnabled) }
-                        var frequencyDays by remember {
-                            mutableIntStateOf(if (isCloudUpdatesEnabled) settings.updateFrequencyDays else 1)
-                        }
                         var showFrequencyOptions by remember { mutableStateOf(false) }
 
-                        LaunchedEffect(isEnabled, frequencyDays) {
-                            val days = if (isEnabled) frequencyDays else -1
-                            settingsManager.updateSettings { it.updateFrequencyDays = days }
+                        LaunchedEffect(checkForUpdate) {
+                            settingsManager.updateSettings { it.checkForUpdate = checkForUpdate }
+                        }
+
+                        SettingItem(
+                            title = stringResource(R.string.setting_check_app_updates),
+                            description = stringResource(R.string.setting_check_app_updates_description),
+                            icon = Icons.Default.SystemUpdate,
+                            iconColor = MaterialTheme.colorScheme.primary
+                        ) {
+                            Switch(
+                                checked = checkForUpdate, onCheckedChange = {
+                                    checkForUpdate = it
+                                }, colors = defaultSwitchTheme
+                            )
                         }
 
                         SettingItem(
@@ -504,14 +620,14 @@ fun SettingsScreen(
                             iconColor = MaterialTheme.colorScheme.primary
                         ) {
                             Switch(
-                                checked = isEnabled,
-                                onCheckedChange = { isEnabled = it },
+                                checked = cloudUpdatesEnabled,
+                                onCheckedChange = { cloudUpdatesEnabled = it },
                                 colors = defaultSwitchTheme
                             )
                         }
 
                         AnimatedVisibility(
-                            visible = isEnabled,
+                            visible = cloudUpdatesEnabled,
                             enter = fadeIn() + expandVertically(),
                             exit = fadeOut() + shrinkVertically()
                         ) {
@@ -529,7 +645,7 @@ fun SettingsScreen(
                                     onClick = { showFrequencyOptions = !showFrequencyOptions }) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            text = when (frequencyDays) {
+                                            text = when (cloudUpdateFrequencyDays) {
                                                 1 -> stringResource(R.string.label_frequency_1_day)
                                                 3 -> stringResource(R.string.label_frequency_3_days)
                                                 7 -> stringResource(R.string.label_frequency_1_week)
@@ -562,7 +678,7 @@ fun SettingsScreen(
                                             Row(modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable {
-                                                    frequencyDays = days
+                                                    cloudUpdateFrequencyDays = days
                                                     showFrequencyOptions = false
                                                 }
                                                 .padding(vertical = 8.dp),
@@ -578,7 +694,7 @@ fun SettingsScreen(
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     color = MaterialTheme.colorScheme.onSurface
                                                 )
-                                                if (frequencyDays == days) {
+                                                if (cloudUpdateFrequencyDays == days) {
                                                     Icon(
                                                         Icons.Outlined.CheckCircle,
                                                         null,
@@ -1002,6 +1118,51 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            item {
+                Text(
+                    text = stringResource(R.string.setting_backup_restore),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                )
+            }
+
+            item {
+                SettingsCard {
+                    Column {
+                        SettingItem(
+                            title = stringResource(R.string.setting_backup),
+                            description = stringResource(R.string.setting_backup_description),
+                            icon = Icons.Outlined.CloudSync,
+                            iconColor = MaterialTheme.colorScheme.primary,
+                            onClick = {
+                                backupLauncher.launch("aihub_settings_backup.json")
+                            },
+                            trailingContent = {
+                                Icon(Icons.Outlined.ChevronRight, null)
+                            },
+                        )
+
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        SettingItem(
+                            title = stringResource(R.string.setting_restore),
+                            description = stringResource(R.string.setting_restore_description),
+                            icon = Icons.Outlined.Restore,
+                            iconColor = MaterialTheme.colorScheme.primary,
+                            onClick = { showRestoreConfirmDialog = true },
+                            trailingContent = {
+                                Icon(Icons.Outlined.ChevronRight, null)
+                            },
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -1062,6 +1223,29 @@ fun SettingsScreen(
                     Text(stringResource(R.string.action_cancel))
                 }
             })
+    }
+
+    if (showRestoreConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showRestoreConfirmDialog = false },
+            title = { Text(stringResource(R.string.setting_restore)) },
+            text = { Text(stringResource(R.string.setting_restore_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRestoreConfirmDialog = false
+                        restoreLauncher.launch(arrayOf("application/json"))
+                    },
+                ) {
+                    Text(stringResource(R.string.action_restore))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreConfirmDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
     }
 }
 

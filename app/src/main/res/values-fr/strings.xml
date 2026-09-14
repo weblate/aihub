@@ -141,4 +141,5 @@
     <string name="msg_no_suitable_app_found">Aucune application appropriée n\'a été trouvée</string>
     <string name="msg_permission_denied">Permission refusée</string>
     <string name="msg_press_again">Appuyez à nouveau pour quitter</string>
+    <string name="action_restore">Restaurer</string>
 </resources>

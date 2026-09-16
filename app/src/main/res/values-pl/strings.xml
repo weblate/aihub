@@ -132,7 +132,7 @@
     <string name="msg_unsupported_scheme">Nieobsługiwany schemat pobierania: %1$s</string>
     <string name="msg_update_all_success">Zaktualizowano reguły domeny i usługi AI</string>
     <string name="msg_update_failed">Aktualizacja nie powiodła się – sprawdź połączenie</string>
-    <string name="section_about">O</string>
+    <string name="section_about">O programie</string>
     <string name="section_cloud_updates">Aktualizacje w chmurze</string>
     <string name="section_performance">Wydajność</string>
     <string name="section_preferences">Preferencje</string>
